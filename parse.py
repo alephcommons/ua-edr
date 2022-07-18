@@ -5,15 +5,69 @@ from lxml import etree
 from pprint import pprint
 from typing import IO, BinaryIO, Dict, Optional, Set
 from lxml.etree import _Element as Element, tostring
+from normality import latinize_text
 from numpy import short
 from zavod import Zavod, init_context
 from followthemoney.proxy import EntityProxy
 from followthemoney.util import join_text
 from followthemoney.util import make_entity_id
 
+REMOVE = set(
+    [
+        "КІНЦЕВИЙ БЕНЕФІЦІАР ВЛАСНИК(КОНТРОЛЕР)",
+        "КІНЦЕВИЙ БЕНЕФЕЦІАРНИЙ ВЛАСНИК(КОНТРОЛЕР)",
+        "КІНЦЕВИЙ БЕНЕФІЦІАРНИЙ ВЛАСНИК(КОНТРОЛЕР)",
+        "КІНЦЕВИЙ БЕНЕФІЦІАРНИЙ ВЛАСНИК",
+        "(КОНТРОЛЕР)",
+        "акціонери akcíoneri",
+        "КІНЦЕВИЙ БЕНЕФІЦІАРНИЙ ВЛВСНИК  У ЮРИДИЧНОЇ ОСОБИ ВІДСУТНІЙ",
+    ]
+)
+
 
 def tag_text(el: Element) -> str:
     return tostring(el, encoding="utf-8").decode("utf-8")
+
+
+def parse_owner(context: Zavod, company_id: str, unique_id: str, el: Element):
+    if el.text is None:
+        return
+    if "причина відсутності:" in el.text:
+        return
+    if el.text.startswith("релігійна громада в кількості"):
+        return
+    owner = context.make("LegalEntity")
+    owner.id = context.make_id(unique_id, el.text)
+    ownership = context.make("Ownership")
+    ownership.id = context.make_id(unique_id, el.tag, el.text)
+    ownership.add("owner", owner)
+    ownership.add("asset", company_id)
+    ownership.add("role", el.tag)
+    text = el.text
+    for rem in REMOVE:
+        text = text.replace(rem, "")
+    text = text.strip().strip("-")
+    parts = text.rsplit(", розмір частки -", 1)
+    text = parts[0]
+    if len(parts) > 1:
+        ownership.add("sharesValue", parts[1])
+
+    parts = text.split(",", 1)
+    name = text
+    if len(parts) > 1:
+        name = parts[1]
+
+    name = name.strip()
+    if not len(name):
+        return
+
+    owner.add("name", name)
+    if name != el.text:
+        owner.add("notes", el.text)
+    # print(name, latinize_text(name))
+
+    context.emit(owner)
+    context.emit(ownership)
 
 
 def parse_uo(context: Zavod, fh: IO[bytes]):
@@ -58,6 +112,25 @@ def parse_uo(context: Zavod, fh: IO[bytes]):
             directorship.add("organization", company)
             directorship.add("director", director)
             context.emit(director)
+
+        for founder in el.findall("./FOUNDERS/FOUNDER"):
+            parse_owner(context, company.id, unique_id, founder)
+            # founder_name = founder.text
+            # capital = None
+            # if founder_name is None:
+            #     continue
+            # if ", розмір частки -" not in founder.text:
+            #     print("FOUNDER", founder.text)
+
+        for bene in el.findall("./BENEFICIARIES/BENEFICIARY"):
+            parse_owner(context, company.id, unique_id, founder)
+            # if bene.text is None:
+            #     continue
+            # if "причина відсутності:" in bene.text:
+            #     continue
+            # parts = bene.text.split(";", 2)
+            # if len(parts) != 3:
+            #     print("BENE", parts)
 
         # TODO: beneficiary
         # TODO: founder
