@@ -1,6 +1,2 @@
-# Ukraine Consolidated State Registry (Edinyy Derzhavnyj Reestr)
 
-Ukraine BO database, frozen as at 2022-02-23. 
-
-* FtM Data File: https://data.opensanctions.org/contrib/ua_edr/edr_uo.json
-
+[Moved here](https://github.com/opensanctions/graph/tree/main/datasets/ua_edr).
